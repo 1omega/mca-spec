@@ -49,7 +49,9 @@ An AR is a JSON object with the following fields. Unknown fields MUST be preserv
 | `commerce` | object | MAY | Commerce Triple binding (Section 9.1) |
 | `ext` | object | MAY | Namespaced extensions (Section 11) |
 
-**`record_hash`** (not stored in the AR itself) = SHA-256 over the canonical form (Section 4) of the AR **excluding** any field named `record_hash`. The chain property: `AR[n].prev_hash == record_hash(AR[n-1])`.
+**`record_hash`** (not part of the hashed content) = SHA-256 over the canonical form (Section 4) of the AR **excluding** any field named `record_hash`. The chain property: `AR[n].prev_hash == record_hash(AR[n-1])`.
+
+*Served form (0.1.1).* A Log MAY include `record_hash` in the AR it serves, as a convenience to readers. Verifiers MUST exclude it before hashing and MUST NOT trust it: the served value is checked, never used.
 
 ## 4. Canonicalization & Hashing
 
@@ -79,17 +81,65 @@ A Checkpoint is a JSON object:
 
 Checkpoint cadence is operator policy; **hourly or better is RECOMMENDED** for commerce logs. The interval between an AR append and its first covering Checkpoint is the log **exposure window** and MUST be published in the Log policy document.
 
+### 6.1 Log Descriptor (0.1.1)
+
+A public Log publishes its policy document at `https://<log host>/.well-known/mca/log.json`. It is the anchor a verifier fetches first and the only place the operator's public key needs to be trusted from (pinning it is RECOMMENDED).
+
+| Field | Req | Description |
+|---|---|---|
+| `log_id` | MUST | As in Section 3 |
+| `mca_version` | MUST | `"0.1"` |
+| `hash_alg` | MUST | `"sha-256"` |
+| `signature_alg` | MUST | `"ed25519"` for a public Log |
+| `key_id` | MUST | Section 7 derivation of `public_key_pem` |
+| `public_key_pem` | MUST | Operator verification key, SPKI PEM |
+| `checkpoint_cadence` | MUST | `{ "first_append": true, "max_records": n, "max_seconds": s }` — a Checkpoint is emitted on the first append after a Checkpoint and thereafter when either bound is reached. This states the exposure window. |
+| `empty_windows` | SHOULD | Statement that windows with no appends emit no Checkpoint (there is no canonical empty range) |
+| `leaf_input` | MUST | What the Merkle leaf is computed over; `"record_hash"` for this version |
+| `record_profile` | SHOULD | `"hash-only"` when the Log omits optional plaintext fields (Section 9.1) |
+| `log_generations` | SHOULD | Array of `{ log_id, status: "active" \| "legacy-frozen", leaf_input, checkpoint_format }`; a frozen generation is never appended to and its Checkpoints are served with their own `log_id` |
+| `witnesses` | SHOULD | Array of Witness Descriptor URLs (Section 8) the Log operator recognises; verifiers MAY witness with others |
+| `links` | SHOULD | Templates for the served endpoints (Section 6.2), the spec and the verifier commit the operator tested against |
+
+### 6.2 Served endpoints (informative profile)
+
+The reference Log serves, without authentication and with public rate limits:
+
+- `GET /api/mca/checkpoints/latest` — newest Checkpoint of the active generation; **404 until the first append** (an empty log is never presented as a healthy one)
+- `GET /api/mca/checkpoints/{id}` — a Checkpoint by its serving id
+- `GET /api/mca/checkpoints/{id}/records` — the ARs in its `range`, one JSON object per line (`application/x-ndjson`), in `seq` order
+- `GET /api/mca/checkpoints/{id}/inclusion?record_hash=…` — the inclusion proof object of Section 13.4
+- `GET /api/mca/records/{record_hash}` — one AR by hash
+- `GET /api/mca/records-lookup?payment_hash=…` — ARs whose `commerce.payment_hash` matches (the consumer question: "is this receipt attested?")
+- `POST /api/mca/checkpoints/{id}/witness` — accepts a Witness entry (Section 8) for merging into the Checkpoint's `witnesses`; authentication is operator policy
+
+Tenant records are never listed; readers reach an AR only through a Checkpoint range, a hash, or a payment hash.
+
 ## 7. Signatures
 
 `signature` = `{ "alg": "ed25519", "key_id": "<log key identifier>", "sig": "<base64url>" }` over the canonical Checkpoint excluding `signature` and `witnesses`.
 
 - **Ed25519 is MANDATORY to implement** for public logs. ECDSA P-256 (`"es256"`) is OPTIONAL.
+- **`key_id` derivation (0.1.1, normative for Ed25519):** `"ed25519:"` followed by the first 16 lowercase hex characters of SHA-256 over the key's SubjectPublicKeyInfo DER encoding. Verifiers MUST compute it from the published key rather than trust the field, and MUST refuse a Checkpoint whose `signature.key_id` does not match a key they hold for the Log.
 - **HMAC-SHA256 (`"hs256"`) is permitted only in Private Deployment Mode** (single-organization logs where verifier and operator share trust); such Checkpoints are non-verifiable by third parties and MUST NOT be presented as public attestations. *(Note: the IONDRA reference log launched in HMAC private mode and migrates to Ed25519 public mode at MCA launch; both modes are conformant in their respective scopes.)*
 - Log signing keys SHOULD be custodied in an HSM or equivalent; key rotation is announced via a `mca.log.key_rotated` AR and a policy-document update.
 
 ## 8. Witnessing
 
-A Witness fetches a Checkpoint, verifies its internal consistency (Section 13.3), and returns `{ "witness_id", "timestamp", "sig" }` over the same canonical bytes the operator signed. A Checkpoint with >=1 independent witness is **witnessed**; verifiers MUST report witnessed status. Split-view attacks (showing different histories to different parties) are detected when any two observers compare `prev_checkpoint_hash` chains - gossip between verifiers and witnesses is RECOMMENDED and will be profiled in v0.2.
+A Witness fetches a Checkpoint, verifies its internal consistency (Section 13.3) **and its `prev_checkpoint_hash` against the last Checkpoint that Witness itself witnessed**, and returns a countersignature over the same canonical bytes the operator signed (the Checkpoint excluding `signature` and `witnesses`).
+
+**Witness entry (0.1.1):**
+
+```json
+{ "witness_id": "witness.example.org", "key_id": "ed25519:…", "alg": "ed25519",
+  "timestamp": "<RFC 3339 UTC>", "sig": "<base64url>" }
+```
+
+`witness_id` is a domain-style name chosen by the Witness; `key_id` follows the Section 7 derivation of the Witness's own key; `alg` MUST be `"ed25519"` for public witnessing. A Checkpoint with >=1 witness entry is **witnessed**; verifiers MUST report witnessed status per entry (Section 13).
+
+**Witness Descriptor (0.1.1).** A Witness publishes `https://<witness host>/.well-known/mca/witness.json` with `witness_id`, `operator` (a plain statement of who runs it — an operator-run witness MUST say so), `alg`, `key_id`, `public_key_pem`, the `log_id` it watches, and where its cosignatures can be fetched (`/witnessed/{checkpoint_id}` RECOMMENDED). A cosignature served from the Witness's own origin is authoritative whether or not the Log has merged it into the Checkpoint's `witnesses`; verifiers SHOULD fetch from the Witness, not only from the Log.
+
+**Independence.** A witness run by the Log operator is permitted and is better than none, but it is not *independent*: verifiers and policies that require independence count only witnesses whose `operator` is a different party. **Split-view detection:** a Witness that observes a different body for a Checkpoint it has already witnessed MUST stop cosigning and publish the divergence. Gossip between verifiers and witnesses is RECOMMENDED and will be profiled in v0.2. Split-view attacks (showing different histories to different parties) are detected when any two observers compare `prev_checkpoint_hash` chains - gossip between verifiers and witnesses is RECOMMENDED and will be profiled in v0.2.
 
 ## 9. Commerce Bindings
 
@@ -108,6 +158,8 @@ For purchase events, the `commerce` object binds payment to value:
 ```
 
 `delivery_hash` MAY be absent at payment time and supplied via a follow-up AR (`commerce.delivery.attested`) referencing the original `record_id`. A triple with all three hashes present and chain-verified constitutes **proof of value transfer**, the evidentiary unit disputes settle on.
+
+*Hash-only profile (0.1.1).* On a public Log, `amount` and `counterparty` MAY be omitted from the served AR (`record_profile: "hash-only"` in the Log Descriptor) so that traffic analysis of the public tree cannot reveal a tenant's volumes; they remain in the producer's private ledger and in the Evidence Bundle behind `evidence_hash`. The three hashes and `rail` MUST still be present for the AR to count as a Commerce Triple. The receipt descriptor that `payment_hash` commits to is rail-specific (for `x402`: network, asset, payTo, amount, txHash, facilitator; for `card`: processor and its intent/charge identifiers) and MUST NOT contain a PAN, CVC, or natural-person identifier.
 
 ### 9.2 Mandate Profile (informative in v0.1, normative in v0.2)
 A Mandate is a signed JSON grant: `{ subject_id, scope: {domains|categories}, limits: {per_txn, daily, velocity}, expiry, delegation: {depth, narrowing}, signer, signature }`. ARs reference it by `mandate_ref`. Verifying that a payment *complied* with its mandate is an application-layer check; MCA guarantees only that the mandate referenced is the mandate that governed.
@@ -133,7 +185,11 @@ A conforming verifier implements four checks and reports each independently:
 3. **Checkpoint verification:** Merkle root over the range record_hash values matches; operator signature valid; `prev_checkpoint_hash` chain intact back to a trusted anchor (a pinned Checkpoint or genesis).
 4. **Inclusion proof:** given an AR and an RFC 6962 audit path, the AR is included under a signed Checkpoint root.
 
-Output vocabulary: `VALID`, `INVALID(<reason>)`, `UNWITNESSED`, `UNANCHORED`, `SEALED_HISTORY_PRESENT`. A verifier MUST NOT report overall validity while suppressing anchor or seal caveats.
+Output vocabulary: `VALID`, `INVALID(<reason>)`, `UNWITNESSED`, `WITNESSED:<witness_id>`, `WITNESS_UNVERIFIED:<witness_id>`, `UNANCHORED`, `SEALED_HISTORY_PRESENT`. A verifier MUST NOT report overall validity while suppressing anchor or seal caveats.
+
+*Witness reporting (0.1.1).* `UNWITNESSED` means exactly that the Checkpoint's `witnesses` array is empty. For each entry present, a verifier reports `WITNESSED:<witness_id>` when it holds that Witness's key and the countersignature verifies, `WITNESS_UNVERIFIED:<witness_id>` when it holds no key for it, and `INVALID(bad-witness-signature:<witness_id>)` when a key it holds fails to verify the entry.
+
+*Inclusion proof, served form (0.1.1).* A Log serves an inclusion proof as `{ "checkpoint_id", "record_hash", "leaf_index", "tree_size", "audit_path": [ { "position": "left" | "right", "hash" } … ], "merkle_root" }`. `audit_path` is the RFC 6962 path bottom-up, `position` naming where the *sibling* sits. Verifiers MUST accept both this object and a bare `audit_path` array, and when the object names `merkle_root`, `checkpoint_id` or `record_hash`, each MUST agree with the Checkpoint and AR being verified or the proof is INVALID.
 
 ## 14. Security Considerations
 
@@ -143,6 +199,6 @@ The exposure window (Section 6) bounds silent-rewrite risk before first checkpoi
 RFC 6962 (Certificate Transparency) supplies the log/checkpoint/inclusion architecture; MCA generalizes the leaf from certificate to commerce attestation and adds the Commerce Triple and subject/mandate model. RFC 8785 supplies canonicalization. x402/AP2/card agent protocols are *complementary*: they move value; MCA proves it moved and under whose authority.
 
 ## Appendix B - Conformance
-An implementation claims conformance as **Producer**, **Log**, **Verifier**, or **Witness**, and MUST pass the corresponding vectors in `mca-verify/test/vectors` (positive chains, tampered-record, gap, forged-checkpoint, wrong-canonicalization, privacy-rejection, sealed-history cases). Test vectors ship with the reference verifier and regenerate deterministically via `npm test`.
+An implementation claims conformance as **Producer**, **Log**, **Verifier**, or **Witness**, and MUST pass the corresponding vectors in `mca-verify/test/vectors` (positive chains, tampered-record, gap, forged-checkpoint, witnessed and witness-forged checkpoints, wrapped inclusion proof, wrong-canonicalization, privacy-rejection, sealed-history cases). Generated vectors regenerate deterministically via `npm test`; the `production/` vectors are static captures from the reference Log (`log.iondra.com/main/record-hash-v1`, Checkpoints `rh1-cp-5..8`, records `seq 0..5`, captured 2026-11-04) and are the first conformance vectors taken from a running Log. A **Witness** implementation additionally MUST refuse to cosign a Checkpoint whose operator signature or Merkle root fails, and MUST halt on a split view.
 
 *Feedback: open an issue on this repository. v0.2 targets: delegation-chain normativity, witness gossip profile, multi-log cross-anchoring.*
