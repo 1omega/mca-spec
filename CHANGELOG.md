@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.1 (addendum, 2026-11-04)
+
+Documents the wire format the reference Log has run in production since 31 Aug 2026 (first attested machine payment, https://www.iondra.com/proof/0). No change to hashing, canonicalization, or signature semantics; 0.1 records and checkpoints verify unchanged.
+
+- §3: served ARs MAY carry `record_hash`; verifiers exclude it and never trust it
+- §6.1: Log Descriptor at `/.well-known/mca/log.json` (operator key, cadence/exposure window, leaf input, record profile, log generations, recognised witnesses, endpoint links)
+- §6.2: served endpoints profile, including `records-lookup?payment_hash=` and the witness submission endpoint; `latest` is 404 until the first append
+- §7: normative `key_id` derivation for Ed25519 (`"ed25519:" + first 16 hex of sha256(SPKI DER)`)
+- §8: witness entry fields (`witness_id`, `key_id`, `alg`, `timestamp`, `sig`), Witness Descriptor at `/.well-known/mca/witness.json`, independence rule, split-view halt
+- §9.1: hash-only profile (`amount` and `counterparty` MAY be omitted on a public Log); receipt-descriptor privacy rule
+- §13: `WITNESSED:<id>` / `WITNESS_UNVERIFIED:<id>` vocabulary; inclusion proof served (object) form
+- Appendix B: witness vectors and static production vectors
+
 ## v0.1-draft.1
 
 Initial public draft:

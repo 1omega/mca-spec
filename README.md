@@ -6,7 +6,8 @@ As AI agents become paying participants of the internet (x402-class rails, AP2, 
 
 - **[Read the specification →](./SPEC.md)** (Draft v0.1, open for community review)
 - **Reference verifier:** [`mca-verify`](https://github.com/1omega/mca-verify) — dependency-free, Apache-2.0, with conformance vectors
-- **Reference log:** operated by [IONDRA](https://iondra.com) (public Ed25519 mode rollout in progress)
+- **Reference log:** operated by [IONDRA](https://iondra.com) — live in public Ed25519 mode; first independently verifiable attested machine payment at [iondra.com/proof/0](https://www.iondra.com/proof/0)
+- **Reference witness:** `mca-witness-worker` — an independent witness on Cloudflare Workers (addendum 0.1.1, Section 8)
 - **Governance:** [GOVERNANCE.md](./GOVERNANCE.md) — public PRs, 14-day comment windows, stated path to neutral stewardship
 
 ## Why
@@ -23,7 +24,7 @@ Every participant in the agent economy profits from more spending — the rails 
 
 ## Status
 
-v0.1 public draft. Feedback via issues. v0.2 targets: normative mandate profile, witness gossip, multi-log cross-anchoring.
+v0.1 public draft plus addendum 0.1.1 (Log Descriptor, witness entry and descriptor, key_id derivation, hash-only profile, served inclusion-proof form; see CHANGELOG). Feedback via issues. v0.2 targets: normative mandate profile, witness gossip, multi-log cross-anchoring.
 
 ---
 *Specification text CC-BY-4.0 · Reference code Apache-2.0 · Initiated by [IONDRA](https://iondra.com)*
