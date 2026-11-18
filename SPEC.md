@@ -88,7 +88,7 @@ A public Log publishes its policy document at `https://<log host>/.well-known/mc
 | Field | Req | Description |
 |---|---|---|
 | `log_id` | MUST | As in Section 3 |
-| `mca_version` | MUST | `"0.1"` |
+| `mca_version` | MUST | `"0.1"`, or `"0.2"` once the Log emits `"0.2"` Checkpoints (Section 6.3) |
 | `hash_alg` | MUST | `"sha-256"` |
 | `signature_alg` | MUST | `"ed25519"` for a public Log |
 | `key_id` | MUST | Section 7 derivation of `public_key_pem` |
@@ -97,7 +97,7 @@ A public Log publishes its policy document at `https://<log host>/.well-known/mc
 | `empty_windows` | SHOULD | Statement that windows with no appends emit no Checkpoint (there is no canonical empty range) |
 | `leaf_input` | MUST | What the Merkle leaf is computed over; `"record_hash"` for this version |
 | `record_profile` | SHOULD | `"hash-only"` when the Log omits optional plaintext fields (Section 9.1) |
-| `checkpoint_link` | SHOULD (0.2) | `{ "form": "checkpoint-hash", "first_checkpoint_id": "<id>" }` once the Log emits `"0.2"` Checkpoints: the first Checkpoint that links by `checkpoint_hash` (Section 6.3). Informative: a verifier goes by each Checkpoint's own `mca_version`. The descriptor's `mca_version` is then `"0.2"` |
+| `checkpoint_link` | SHOULD (0.2) | `{ "form": "checkpoint-hash", "first_checkpoint_id": "<id>" }` once the Log emits `"0.2"` Checkpoints: the first Checkpoint that links by `checkpoint_hash` (Section 6.3). Informative: a verifier goes by each Checkpoint's own `mca_version` |
 | `log_generations` | SHOULD | Array of `{ log_id, status: "active" \| "legacy-frozen", leaf_input, checkpoint_format }`; a frozen generation is never appended to and its Checkpoints are served with their own `log_id` |
 | `witnesses` | SHOULD | Array of Witness Descriptor URLs (Section 8) the Log operator recognises; verifiers MAY witness with others |
 | `links` | SHOULD | Templates for the served endpoints (Section 6.2), the spec and the verifier commit the operator tested against |
@@ -126,11 +126,14 @@ In v0.1, `prev_checkpoint_hash` covered the whole previous Checkpoint, including
 - Every other member is part of the body, including `notes` and any member a verifier does not recognise. A verifier MUST NOT drop a member it does not recognise before hashing.
 - A Checkpoint with no `witnesses` member and a Checkpoint with `"witnesses": []` have the same body.
 
-**Body bytes.** The RFC 8785 (JCS) serialization of the Checkpoint body, encoded as UTF-8.
+**Body bytes.** The RFC 8785 (JCS) serialization of the Checkpoint body, encoded as UTF-8. Strings are hashed as given: no Unicode normalization, no case folding, no trimming of whitespace. This is the byte string Section 7 already defines for every Checkpoint, `"0.1"` and `"0.2"` alike.
 
-- A Checkpoint MUST be valid I-JSON (RFC 7493). In particular it MUST NOT repeat a member name within one object. A verifier that can detect a repeated name MUST reject the Checkpoint.
-- Every number in a Checkpoint body MUST be an integer with absolute value below 2^53. A verifier SHOULD reject a body that holds any other number.
-- Strings are hashed as given: no Unicode normalization, no case folding, no trimming of whitespace.
+A `"0.2"` Checkpoint is constrained further, so that every implementation derives the same bytes from it:
+
+- It MUST be valid I-JSON (RFC 7493). In particular it MUST NOT repeat a member name within one object. A verifier that can detect a repeated name MUST reject a `"0.2"` Checkpoint that has one.
+- Every number in its body MUST be an integer with absolute value below 2^53. A verifier SHOULD reject a `"0.2"` Checkpoint whose body holds any other number.
+
+These two constraints do not apply to `"0.1"` Checkpoints. A `"0.1"` Checkpoint whose body holds, for example, a fractional number in `notes` verifies exactly as it did before.
 
 **`checkpoint_hash`.** The SHA-256 of the body bytes, written as 64 lowercase hexadecimal characters. It identifies a Checkpoint: two copies are the same Checkpoint if and only if their `checkpoint_hash` is equal.
 
@@ -155,7 +158,8 @@ The body bytes are used three ways and no other byte string is defined for a Che
 **Legacy links.** A `"0.1"` link covers the witness entries of the previous Checkpoint as they stood when the link was made.
 
 - A Log MUST NOT add, remove or reorder the `witnesses` of a Checkpoint once a `"0.1"` Checkpoint links to it. Cosignatures that arrive later are served from the Witness's own origin (Section 8).
-- When a `"0.1"` link does not reproduce from the previous Checkpoint as supplied, a verifier MUST test whether it reproduces after setting aside some of the supplied witness entries, keeping the order of the rest, and with no `witnesses` member when none are kept. If it does, the link holds: the hash still covers the whole body and the operator signature of the previous Checkpoint. The verifier MUST report `PREV_WITNESS_ADDED_AFTER_LINK:<witness_id>` for each entry set aside. A verifier MAY limit this test to leading runs of the entries when there are more than 12.
+- When a `"0.1"` link does not reproduce from the previous Checkpoint as supplied, a verifier MUST test whether it reproduces after setting aside some of the supplied witness entries, keeping the order of the rest. When no entry is kept, both forms MUST be tested: an empty `witnesses` array, and no `witnesses` member. If a form reproduces the link, the link holds: the hash still covers the whole body and the operator signature of the previous Checkpoint. The verifier MUST report `PREV_WITNESS_ADDED_AFTER_LINK:<witness_id>` for each entry set aside. A match shows that the link does not cover those entries. It does not show when the Log merged them.
+- The previous Checkpoint is untrusted input and each attempt hashes all of it, so a verifier MAY bound this test: it MAY try only leading runs of the entries when there are more than 12, and MAY skip the test when there are more than 64. A verifier that finds no match after a bounded test MUST say so in its `INVALID` reason, because the link may still be sound. Such a link is checked against the previous Checkpoint exactly as it stood when the link was made.
 - A `"0.1"` link cannot be checked from a copy of the previous Checkpoint that lacks an entry the link covered. The reader fetches the served copy, confirms that its `checkpoint_hash` equals that of the copy it holds, and checks the link against the served copy.
 
 ## 7. Signatures
@@ -234,7 +238,7 @@ Output vocabulary: `VALID`, `INVALID(<reason>)`, `UNWITNESSED`, `WITNESSED:<witn
 
 *Witness reporting (0.1.1).* `UNWITNESSED` means exactly that the Checkpoint's `witnesses` array is empty. For each entry present, a verifier reports `WITNESSED:<witness_id>` when it holds that Witness's key and the countersignature verifies, `WITNESS_UNVERIFIED:<witness_id>` when it holds no key for it, and `INVALID(bad-witness-signature:<witness_id>)` when a key it holds fails to verify the entry.
 
-*Chain link reporting (0.2).* `PREV_WITNESS_ADDED_AFTER_LINK:<witness_id>` accompanies a `VALID` result for a `"0.1"` link that reproduces only after that witness entry of the previous Checkpoint is set aside (Section 6.3). A link in the wrong form for its Checkpoint's version, a `"0.1"` Checkpoint that follows a `"0.2"` one, and a previous Checkpoint from another Log are each `INVALID(checkpoint-chain-broken:…)`.
+*Chain link reporting (0.2).* `PREV_WITNESS_ADDED_AFTER_LINK:<witness_id>` accompanies a `VALID` result for a `"0.1"` link that reproduces only after that witness entry of the previous Checkpoint is set aside (Section 6.3): the link does not cover the entry. A mismatch found after a bounded witness test is reported as `INVALID(checkpoint-chain-broken:prev_checkpoint_hash-mismatch:witness-search-incomplete:…)`. A link in the wrong form for its Checkpoint's version, a `"0.1"` Checkpoint that follows a `"0.2"` one, and a previous Checkpoint from another Log are each `INVALID(checkpoint-chain-broken:…)`.
 
 *Inclusion proof, served form (0.1.1).* A Log serves an inclusion proof as `{ "checkpoint_id", "record_hash", "leaf_index", "tree_size", "audit_path": [ { "position": "left" | "right", "hash" } … ], "merkle_root" }`. `audit_path` is the RFC 6962 path bottom-up, `position` naming where the *sibling* sits. Verifiers MUST accept both this object and a bare `audit_path` array, and when the object names `merkle_root`, `checkpoint_id` or `record_hash`, each MUST agree with the Checkpoint and AR being verified or the proof is INVALID.
 
@@ -246,6 +250,6 @@ The exposure window (Section 6) bounds silent-rewrite risk before first checkpoi
 RFC 6962 (Certificate Transparency) supplies the log/checkpoint/inclusion architecture; MCA generalizes the leaf from certificate to commerce attestation and adds the Commerce Triple and subject/mandate model. RFC 8785 supplies canonicalization. x402/AP2/card agent protocols are *complementary*: they move value; MCA proves it moved and under whose authority.
 
 ## Appendix B - Conformance
-An implementation claims conformance as **Producer**, **Log**, **Verifier**, or **Witness**, and MUST pass the corresponding vectors in `mca-verify/test/vectors` (positive chains, tampered-record, gap, forged-checkpoint, witnessed and witness-forged checkpoints, wrapped inclusion proof, wrong-canonicalization, privacy-rejection, sealed-history cases). Generated vectors regenerate deterministically via `npm test`; the `production/` vectors are static captures from the reference Log (`log.iondra.com/main/record-hash-v1`, Checkpoints `rh1-cp-5..8`, records `seq 0..5`, captured 2026-11-04, and the witnessed Checkpoints `rh1-cp-9..15`, captured 2026-11-18) and are the first conformance vectors taken from a running Log. The `v02/` vectors (0.2) are one Log of four Checkpoints that crosses the switch of Section 6.3, each Checkpoint as emitted and as served after a late witness merge, with the expected result of every case in `expected.json`. A **Witness** implementation additionally MUST refuse to cosign a Checkpoint whose operator signature or Merkle root fails, and MUST halt on a split view.
+An implementation claims conformance as **Producer**, **Log**, **Verifier**, or **Witness**, and MUST pass the corresponding vectors in `mca-verify/test/vectors` (positive chains, tampered-record, gap, forged-checkpoint, witnessed and witness-forged checkpoints, wrapped inclusion proof, wrong-canonicalization, privacy-rejection, sealed-history cases). Generated vectors are checked in and `npm test` runs against them as they are (`npm run gen-vectors` regenerates them with fresh keys); the `production/` vectors are static captures from the reference Log (`log.iondra.com/main/record-hash-v1`, Checkpoints `rh1-cp-5..8`, records `seq 0..5`, captured 2026-11-04, and the witnessed Checkpoints `rh1-cp-9..15`, captured 2026-11-18) and are the first conformance vectors taken from a running Log. The `v02/` vectors (0.2) are one Log of four Checkpoints that crosses the switch of Section 6.3, each Checkpoint as emitted and as served after a late witness merge, with the expected result of every case in `expected.json`. A **Witness** implementation additionally MUST refuse to cosign a Checkpoint whose operator signature or Merkle root fails, and MUST halt on a split view.
 
 *Feedback: open an issue on this repository. v0.2 targets: delegation-chain normativity, witness gossip profile, multi-log cross-anchoring.*

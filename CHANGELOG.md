@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2-draft.2 (proposed): corrections to the checkpoint chain link text
+
+Corrections from review of v0.2-draft.1. No rule of v0.2-draft.1 changes in substance.
+
+- §6.1: the Log Descriptor's `mca_version` may be `"0.2"`; draft.1 said so in one row and required `"0.1"` in another
+- §6.3: the I-JSON and integer-only constraints apply to `"0.2"` Checkpoints only, so every `"0.1"` Checkpoint verifies as before
+- §6.3: a legacy link made over an empty `witnesses` array is tested in that form as well as with no `witnesses` member
+- §6.3, §13: a match after setting entries aside shows what the link covers, not when the entries were merged; a verifier may bound the test and must then report a mismatch as found after an incomplete search
+- Appendix B: generated vectors are checked in; `npm test` no longer regenerates them
+
 ## v0.2-draft.1 (proposed, not published): the checkpoint chain link
 
 Closes issue #2. In v0.1, `prev_checkpoint_hash` covered the whole previous Checkpoint, including its `witnesses`, which change after the Checkpoint is emitted. Observed on the reference Log on 2026-11-05 (`rh1-cp-10`, `rh1-cp-11`).
