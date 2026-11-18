@@ -2,10 +2,10 @@
 
 ## v0.2-draft.2 (proposed): corrections to the checkpoint chain link text
 
-Corrections from review of v0.2-draft.1. No rule of v0.2-draft.1 changes in substance.
+Corrections from review of v0.2-draft.1. One rule of draft.1 is relaxed (the second item below); the rest are corrections of wording and of two passages that contradicted each other.
 
 - §6.1: the Log Descriptor's `mca_version` may be `"0.2"`; draft.1 said so in one row and required `"0.1"` in another
-- §6.3: the I-JSON and integer-only constraints apply to `"0.2"` Checkpoints only, so every `"0.1"` Checkpoint verifies as before
+- §6.3: **changed from draft.1.** Draft.1 applied the I-JSON and integer-only constraints, and the advice to reject, to every Checkpoint. Draft.2 applies them to `"0.2"` Checkpoints only. A `"0.1"` Checkpoint, for example one with a fractional number in `notes`, therefore verifies as it did under v0.1 and is no longer one a verifier SHOULD reject
 - §6.3: a legacy link made over an empty `witnesses` array is tested in that form as well as with no `witnesses` member
 - §6.3, §13: a match after setting entries aside shows what the link covers, not when the entries were merged; a verifier may bound the test and must then report a mismatch as found after an incomplete search
 - Appendix B: generated vectors are checked in; `npm test` no longer regenerates them

@@ -133,7 +133,7 @@ A `"0.2"` Checkpoint is constrained further, so that every implementation derive
 - It MUST be valid I-JSON (RFC 7493). In particular it MUST NOT repeat a member name within one object. A verifier that can detect a repeated name MUST reject a `"0.2"` Checkpoint that has one.
 - Every number in its body MUST be an integer with absolute value below 2^53. A verifier SHOULD reject a `"0.2"` Checkpoint whose body holds any other number.
 
-These two constraints do not apply to `"0.1"` Checkpoints. A `"0.1"` Checkpoint whose body holds, for example, a fractional number in `notes` verifies exactly as it did before.
+These two constraints do not apply to `"0.1"` Checkpoints. A `"0.1"` Checkpoint whose body holds, for example, a fractional number in `notes` verifies exactly as it did under v0.1.
 
 **`checkpoint_hash`.** The SHA-256 of the body bytes, written as 64 lowercase hexadecimal characters. It identifies a Checkpoint: two copies are the same Checkpoint if and only if their `checkpoint_hash` is equal.
 
