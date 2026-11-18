@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2-draft.1 (proposed, not published): the checkpoint chain link
+
+Closes issue #2. In v0.1, `prev_checkpoint_hash` covered the whole previous Checkpoint, including its `witnesses`, which change after the Checkpoint is emitted. Observed on the reference Log on 2026-11-05 (`rh1-cp-10`, `rh1-cp-11`).
+
+- §6.3 (new): Checkpoint body, body bytes and `checkpoint_hash`, defined once and used for the operator signature, witness cosignatures and the chain link
+- §6, §6.3: a Checkpoint with `mca_version` `"0.2"` links by the previous Checkpoint's `checkpoint_hash`; the linking Checkpoint's version selects the form and a verifier accepts no other
+- §6.3: an existing Log switches in place, one way, without a new `log_id`; earlier links and signatures are untouched
+- §6.3: rules for legacy `"0.1"` links: witness entries are frozen once a `"0.1"` Checkpoint links to them; verifiers tolerate entries merged later and report `PREV_WITNESS_ADDED_AFTER_LINK:<witness_id>`
+- §6.1: `checkpoint_link` in the Log Descriptor; §6.2: the witness endpoint refuses a merge that would break a `"0.1"` link
+- §8: a Witness records and compares `checkpoint_hash`; a copy that differs only in `witnesses` is not a split view
+- §11, §13: a verifier refuses a Checkpoint version it does not implement; new reporting vocabulary
+- Appendix B: `v02/` vectors and production Checkpoints `rh1-cp-9..15`
+
+Every v0.1 Checkpoint and AR verifies unchanged.
+
 ## v0.1.1 (addendum, 2026-11-04)
 
 Documents the wire format the reference Log has run in production since 31 Aug 2026 (first attested machine payment, https://www.iondra.com/proof/0). No change to hashing, canonicalization, or signature semantics; 0.1 records and checkpoints verify unchanged.
